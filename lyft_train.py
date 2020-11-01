@@ -49,7 +49,6 @@ def buildTrainingData():
 def lyft_train():
     train_dataloader = buildTrainingData()
     print('data loaded')
-    scaler = torch.cuda.amp.GradScaler()
     # ==== INIT MODEL=================
     model_name = cfg["model_params"]["model_name"]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -62,6 +61,10 @@ def lyft_train():
         model.load_state_dict(torch.load(weight_path))
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=cfg["model_params"]["lr"])
+    # load optimizer if there is a pretrained model
+    opt_weight_path = f"{model_name}_optimizer_final.pth"
+    if opt_weight_path:
+        optimizer.load_state_dict(torch.load(opt_weight_path))
 
     print(f'device {device}')
     tr_it = iter(train_dataloader)
@@ -84,26 +87,30 @@ def lyft_train():
         except StopIteration:
             tr_it = iter(train_dataloader)
             data = next(tr_it)
-        # model.train()
+        model.train()
 
         # Backward pass
         optimizer.zero_grad()
-        with torch.cuda.amp.autocast():
+        if cfg["train_params"]["precision"] == True:
+            scaler = torch.cuda.amp.GradScaler()
+            with torch.cuda.amp.autocast():
+                loss, _, _ = forward(data, model, device)
+
+            # Scales the loss, and calls backward()
+            # to create scaled gradients
+            scaler.scale(loss).backward()
+
+            # Unscales gradients and calls
+            # or skips optimizer.step()
+            scaler.step(optimizer)
+
+            # Updates the scale for next iteration
+            scaler.update()
+        else:
+
             loss, _, _ = forward(data, model, device)
-
-        # Scales the loss, and calls backward()
-        # to create scaled gradients
-        scaler.scale(loss).backward()
-
-        # Unscales gradients and calls
-        # or skips optimizer.step()
-        scaler.step(optimizer)
-
-        # Updates the scale for next iteration
-        scaler.update()
-
-        # loss.backward()
-        # optimizer.step()
+            loss.backward()
+            optimizer.step()
 
         loss_v = loss.item()
         losses.append(loss_v)
@@ -117,12 +124,14 @@ def lyft_train():
             mem = memory()
             if i % checkpoint_steps == 0:
                 torch.save(model.state_dict(), f'{model_name}_{i}.pth')
+                torch.save(optimizer.state_dict(), f'{model_name}_optimizer_{i}.pth')
             iterations.append(i)
             metrics.append(mean_losses)
             memorys.append(mem)
             times.append(timespent)
 
     torch.save(model.state_dict(), f'{model_name}_final.pth')
+    torch.save(optimizer.state_dict(), f'{model_name}_optimizer_final.pth')
     results = pd.DataFrame({
         'iterations': iterations,
         'metrics (avg)': metrics,

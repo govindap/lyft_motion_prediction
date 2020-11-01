@@ -63,8 +63,9 @@ cfg = {
     },
     'train_params': {
         'steps': 120,
-        'update_steps': 10,
-        'checkpoint_steps': 10,
+        'update_steps': 50,
+        'checkpoint_steps': 100,
+        'precision': True
     }
 }
 

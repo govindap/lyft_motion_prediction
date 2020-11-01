@@ -56,6 +56,7 @@ def lyftTest():
     weight_path = f"{model_name}_final.pth"
     if weight_path:
         model.load_state_dict(torch.load(weight_path))
+    model.eval()
     model.to(device)
     torch.set_grad_enabled(False)
 
